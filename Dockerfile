@@ -28,6 +28,7 @@ dirs = ['shared','shared/utils','shared/models', \
 # ── Source layer ─────────────────────────────────────────────────────────────
 COPY shared/ shared/
 COPY services/ services/
+COPY start.py ./
 
 # Run as non-root
 RUN useradd -m -u 1000 edgar && chown -R edgar:edgar /app
