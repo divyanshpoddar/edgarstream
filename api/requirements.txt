@@ -1,0 +1,13 @@
+# Vercel-only requirements — intentionally lighter than pyproject.toml.
+# arelle, prefect, pandas, snowflake, feedparser are NOT needed by the API
+# and would blow past Vercel's 250 MB compressed bundle limit.
+fastapi>=0.111.0
+uvicorn>=0.30.0
+mangum>=0.17.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+sqlalchemy>=2.0.30
+psycopg2-binary>=2.9.9
+prometheus-fastapi-instrumentator>=7.0.0
+prometheus-client>=0.20.0
+httpx>=0.27.0

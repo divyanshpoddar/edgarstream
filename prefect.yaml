@@ -1,0 +1,23 @@
+name: edgarstream
+prefect-version: "3.0"
+
+# Build & push settings (leave blank for local runs)
+build: null
+push: null
+pull: null
+
+deployments:
+  - name: edgar-queue-drain
+    description: >
+      Drains the Redis filing queue every 60 s. Each filing is processed as a
+      subflow with per-task retries, making failures visible in the Prefect UI.
+    entrypoint: services/workers/prefect_flow.py:drain_queue_flow
+    parameters:
+      batch_size: 50
+    schedules:
+      - interval: 60          # seconds
+        anchor_date: "2024-01-01T00:00:00"
+        timezone: "UTC"
+    work_pool:
+      name: default-agent-pool
+      work_queue_name: default
