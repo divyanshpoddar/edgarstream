@@ -34,12 +34,12 @@ export default function VolumeChart({ data }: Props) {
   const formTypes = new Set<string>();
   for (const pt of data) {
     formTypes.add(pt.form_type);
-    const row = dateMap.get(pt.date) ?? { date: pt.date };
+    if (!dateMap.has(pt.date)) dateMap.set(pt.date, { date: pt.date } as Record<string, number>);
+    const row = dateMap.get(pt.date)!;
     row[pt.form_type] = (row[pt.form_type] ?? 0) + pt.count;
-    dateMap.set(pt.date, row);
   }
   const chartData = Array.from(dateMap.values()).sort((a, b) =>
-    (a.date as string).localeCompare(b.date as string)
+    String(a.date).localeCompare(String(b.date))
   );
   const types = Array.from(formTypes);
 

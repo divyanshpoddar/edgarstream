@@ -243,15 +243,15 @@ DATABASE_URL="postgresql+psycopg2://...?sslmode=require" \
   python -c "from shared.utils.db import init_db; init_db(); print('Tables created')"
 ```
 
-Your API endpoints will be live at:
+Your API endpoints are live at:
 ```
-https://edgarstream-api.vercel.app/
-https://edgarstream-api.vercel.app/status
-https://edgarstream-api.vercel.app/api/filings
-https://edgarstream-api.vercel.app/api/financials
-https://edgarstream-api.vercel.app/api/metrics
-https://edgarstream-api.vercel.app/api/volume
-https://edgarstream-api.vercel.app/api/drift
+https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/
+https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/status
+https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/api/filings
+https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/api/financials
+https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/api/metrics
+https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/api/volume
+https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/api/drift
 ```
 
 ### Step 4 — Deploy Next.js frontend to Vercel (Project 2)
@@ -266,7 +266,7 @@ https://edgarstream-api.vercel.app/api/drift
 
 | Variable | Value |
 |----------|-------|
-| `NEXT_PUBLIC_API_URL` | Your API project URL, e.g. `https://edgarstream-api.vercel.app` |
+| `NEXT_PUBLIC_API_URL` | `https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app` |
 
 Click **Deploy**. Pages live at:
 
@@ -332,11 +332,9 @@ railway logs --service edgarstream-poller
 
 ## Step 6 — Smoke test
 
-Replace `API` and `APP` with your actual Vercel URLs:
-
 ```bash
-API=https://edgarstream-api.vercel.app
-APP=https://edgarstream-app.vercel.app
+API=https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app
+APP=https://edgarstream-app.vercel.app   # update once frontend is deployed
 
 # Backend
 curl $API/                              # {"status": "EdgarStream API is live"}
@@ -416,7 +414,7 @@ https://api.edgarstream.io/status  # Pipeline status dashboard
 
 | Variable | Local value | Prod value |
 |----------|-------------|------------|
-| `NEXT_PUBLIC_API_URL` | `http://localhost:8888` | `https://edgarstream-api.vercel.app` |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8888` | `https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app` |
 
 ### Railway only (worker)
 
