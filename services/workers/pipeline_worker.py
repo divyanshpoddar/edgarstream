@@ -24,6 +24,7 @@ from services.monitor.schema_drift import (
     check_holdings_drift,
     emit_drift_alert,
 )
+from services.warehouse.snowflake_sync import ensure_schema, upsert_financial
 
 # Logging Configuration
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - [%(levelname)s] - %(message)s')
@@ -93,6 +94,14 @@ def process_filing(metadata_dict: dict):
             db.merge(fin_row)
             db.commit()
             logger.info(f"Persisted 10-K financials for {meta.company_name} ({meta.accession_number})")
+            upsert_financial({
+                "accession_number": meta.accession_number, "company_name": meta.company_name,
+                "cik": meta.cik, "form_type": meta.form_type, "filing_date": meta.filing_date,
+                "total_assets": financials.get("Assets"), "total_liabilities": financials.get("Liabilities"),
+                "revenues": financials.get("Revenues"), "net_income": financials.get("NetIncomeLoss"),
+                "source_xbrl_url": financials.get("source_xbrl_url"),
+                "tag_provenance": json.dumps(financials.get("tag_provenance", {})),
+            })
 
             drift = check_financials_drift(
                 meta.form_type, meta.accession_number, meta.company_name,
@@ -122,6 +131,14 @@ def process_filing(metadata_dict: dict):
             db.merge(fin_row)
             db.commit()
             logger.info(f"Persisted 10-Q financials for {meta.company_name}")
+            upsert_financial({
+                "accession_number": meta.accession_number, "company_name": meta.company_name,
+                "cik": meta.cik, "form_type": meta.form_type, "filing_date": meta.filing_date,
+                "total_assets": financials.get("Assets"), "total_liabilities": financials.get("Liabilities"),
+                "revenues": financials.get("Revenues"), "net_income": financials.get("NetIncomeLoss"),
+                "source_xbrl_url": financials.get("source_xbrl_url"),
+                "tag_provenance": json.dumps(financials.get("tag_provenance", {})),
+            })
 
             drift = check_financials_drift(
                 meta.form_type, meta.accession_number, meta.company_name,
@@ -192,6 +209,7 @@ def start_worker():
     """Main worker daemon loop."""
     logger.info("Initializing Operational Database Tables...")
     init_db()
+    ensure_schema()
 
     metrics_port = int(os.getenv("METRICS_PORT", 9100))
     start_http_server(metrics_port)
