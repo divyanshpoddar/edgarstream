@@ -29,17 +29,18 @@ export default function VolumeChart({ data }: Props) {
     );
   }
 
-  // Pivot: date → { date, "10-K": n, "10-Q": m, ... }
-  const dateMap = new Map<string, Record<string, number>>();
+  // Pivot: date → { date: string, "10-K": number, ... }
+  type ChartRow = { date: string } & Record<string, number | string>;
+  const dateMap = new Map<string, ChartRow>();
   const formTypes = new Set<string>();
   for (const pt of data) {
     formTypes.add(pt.form_type);
-    if (!dateMap.has(pt.date)) dateMap.set(pt.date, { date: pt.date } as Record<string, number>);
+    if (!dateMap.has(pt.date)) dateMap.set(pt.date, { date: pt.date });
     const row = dateMap.get(pt.date)!;
-    row[pt.form_type] = (row[pt.form_type] ?? 0) + pt.count;
+    row[pt.form_type] = ((row[pt.form_type] as number) ?? 0) + pt.count;
   }
   const chartData = Array.from(dateMap.values()).sort((a, b) =>
-    String(a.date).localeCompare(String(b.date))
+    a.date.localeCompare(b.date)
   );
   const types = Array.from(formTypes);
 
