@@ -211,7 +211,8 @@ def start_worker():
     init_db()
     ensure_schema()
 
-    metrics_port = int(os.getenv("METRICS_PORT", 9100))
+    # Render sets PORT dynamically; fall back to METRICS_PORT for local/Railway
+    metrics_port = int(os.getenv("PORT", os.getenv("METRICS_PORT", "9100")))
     start_http_server(metrics_port)
     logger.info(f"Prometheus metrics server started on port {metrics_port}")
     

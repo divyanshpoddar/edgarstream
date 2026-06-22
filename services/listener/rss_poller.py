@@ -1,11 +1,13 @@
 # services/listener/rss_poller.py
 import time
 import re
+import threading
 import feedparser
 import json
 import logging
-import os 
+import os
 from datetime import datetime, timezone, UTC
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import httpx
 from dotenv import load_dotenv
 from redis import Redis
@@ -117,7 +119,30 @@ def parse_sec_feed():
             
     logger.info(f"Poll complete. Queued {new_filings_count} clean filings.")
 
+POLL_INTERVAL = int(os.getenv("POLL_INTERVAL_SECONDS", 1800))  # 30 min default
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"status":"polling"}')
+
+    def log_message(self, *args):
+        pass  # suppress per-request access logs
+
+
+def _start_health_server():
+    port = int(os.getenv("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger.info(f"Health server listening on port {port}")
+
+
 if __name__ == "__main__":
+    _start_health_server()
     while True:
         parse_sec_feed()
-        time.sleep(30) # For dev speed, poll faster. Real production uses 300-600s.
+        logger.info(f"Next poll in {POLL_INTERVAL}s ({POLL_INTERVAL // 60} min)")
+        time.sleep(POLL_INTERVAL)
