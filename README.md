@@ -1,216 +1,215 @@
 # EdgarStream
 
-A production-grade, real-time SEC EDGAR filings pipeline built for sub-minute
-latency structured data extraction at scale.
+[![CI](https://github.com/divyanshpoddar/edgarstream/actions/workflows/ci.yml/badge.svg)](https://github.com/divyanshpoddar/edgarstream/actions/workflows/ci.yml)
+
+A production-grade real-time SEC EDGAR filings pipeline with structured extraction,
+schema drift detection, and a live analytics dashboard.
+
+**Live endpoints**
+
+| Service | URL |
+|---------|-----|
+| API status dashboard | https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/status |
+| REST API | https://edgarstream-mrhv8m3tz-divyanshpoddars-projects.vercel.app/api/filings |
+| Frontend | https://edgarstream-b3zw-gu0jxklja-divyanshpoddars-projects.vercel.app |
+| Worker metrics | https://edgarstream-worker.onrender.com/metrics |
+
+---
+
+## What it does
 
 ```
-RSS Feed (30 s) → Redis queue → Worker (Arelle XBRL) → PostgreSQL + Snowflake
-                                    ↓
-                            Prometheus / Grafana
-                                    ↓
-                            FastAPI REST endpoints
+SEC EDGAR RSS feed
+      │  (every 30 min)
+      ▼
+ rss_poller.py  ──push──►  Upstash Redis queue  ──pop──►  pipeline_worker.py
+                                                                    │
+                              ┌─────────────────────────────────────┤
+                              │  Form type router                   │
+                              │  10-K / 10-Q  → Arelle XBRL        │
+                              │  13F          → XML parser          │
+                              │  8-K          → heuristic HTML      │
+                              │  S-1 / S-1/A  → heuristic HTML      │
+                              └──────────────┬──────────────────────┘
+                                             │
+                              ┌──────────────▼──────────────────────┐
+                              │  Neon PostgreSQL  (operational DB)  │
+                              │  Snowflake        (analytics DWH)   │
+                              │  Prometheus metrics                 │
+                              └──────────────────────────────────────┘
+                                             │
+                              ┌──────────────▼──────────────────────┐
+                              │  FastAPI  (Vercel)                  │
+                              │  Next.js dashboard  (Vercel)        │
+                              └──────────────────────────────────────┘
 ```
+
+---
 
 ## Key numbers
 
 | Metric | Value |
-|---|---|
-| Poll interval | 30 s |
-| Median extraction latency (10-K XBRL) | < 60 s |
-| Form types ingested | 10-K, 10-Q, 8-K, 13F-HR, S-1 |
-| Financial fields extracted | Assets, Liabilities, Revenues, Net Income |
-| Snowflake sync | bulk `write_pandas` on every run |
-| Test coverage | Golden-file regression suite (Apple 10-K, Berkshire 13F, 8-K) |
+|--------|-------|
+| Poll interval | 30 min (SEC EDGAR fair-use) |
+| Form types | 10-K, 10-Q, 8-K, 13F-HR, 13F-HR/A, S-1, S-1/A |
+| Financial fields | Assets, Liabilities, Revenues, Net Income + XBRL tag provenance |
+| Idempotency | Redis seen-set — same accession never processed twice |
+| Snowflake sync | Per-filing MERGE upsert (real-time, not batch) |
+| CI | GitHub Actions — 34 tests, ruff lint, ~2 min |
 
 ---
 
-## Architecture
+## Pipeline workers — two implementations
+
+This project ships **two functionally equivalent workers**. One runs in production;
+the other demonstrates Prefect orchestration for teams that already run a Prefect server.
+
+### `services/workers/pipeline_worker.py` — production (Render)
+
+Plain Python consumer loop. No orchestration dependency. Chosen for the free-tier
+Render deployment because Prefect Cloud requires a server or paid agent.
 
 ```
-services/
-  listener/   rss_poller.py        — polls SEC EDGAR Atom feed every 30 s
-  parser/     form_10k.py          — Arelle XBRL, annual period filter (340–380 days)
-              form_10q.py          — Arelle XBRL, quarterly period filter (75–97 days)
-              form_13f.py          — XML holdings table parser
-              form_8k.py           — heuristic event classifier
-  workers/    pipeline_worker.py   — Redis consumer loop (bare Python, no deps)
-              prefect_flow.py      — Prefect 3 orchestration with retries + UI
-  monitor/    schema_drift.py      — detects missing/zero XBRL tags per form type
-  api/        main.py              — FastAPI: /api/filings, /api/drift, /api/metrics
-  warehouse/  snowflake_sync.py    — bulk sync PostgreSQL → Snowflake
-
-shared/
-  models/     filing.py            — Pydantic SECFilingMetadata contract
-  utils/      db.py                — SQLAlchemy ORM (PostgreSQL)
-  metrics.py                       — Prometheus counters / histograms / gauges
-
-infra/
-  prometheus/ prometheus.yml
-  grafana/    provisioning/ + dashboards/edgarstream.json
+while True:
+    payload = redis.rpop(queue)
+    process_filing(payload)   # extract → persist Neon → upsert Snowflake
 ```
+
+Failures are caught, logged to `filing_execution_logs`, and surfaced via the
+`/api/metrics` endpoint. Prometheus counters track success rate and latency.
+
+### `services/workers/prefect_flow.py` — Prefect orchestration (local / Prefect Cloud)
+
+Same extraction logic, but each parser call is a `@task` with automatic retries
+and exponential back-off. Every filing becomes a trackable subflow in the Prefect UI.
+
+| Task | Retries | Back-off |
+|------|---------|----------|
+| 10-K / 10-Q XBRL extraction | 3 | 30 s → 60 s → 120 s |
+| 13F / 8-K extraction | 2 | 15 s → 30 s |
+| DB persistence | 1 | — |
+
+To run locally with the Prefect UI:
+```bash
+python services/workers/prefect_flow.py
+# or deploy to Prefect Cloud:
+prefect deploy --all
+```
+
+The bare worker was chosen for production to eliminate the Prefect server dependency
+on free-tier infrastructure. In a bank environment with a managed Prefect or Airflow
+server, `prefect_flow.py` is the right choice — it gives per-task observability,
+retry auditability, and a UI for on-call engineers.
 
 ---
 
-## Quick start
+## Engineering signals
 
-### Prerequisites
+**Idempotency** — every accession number is hashed into a Redis seen-set before
+queuing. Re-processing the same filing produces identical output and is a no-op
+at the DB layer (`db.merge()` keyed on `accession_number`).
 
-- Docker Desktop
-- Python 3.12
-- A Snowflake account (optional — pipeline runs without it)
-
-### 1. Start infrastructure
-
-```bash
-make up          # starts postgres, redis, prometheus, grafana
+**XBRL tag provenance** — every extracted financial metric records which exact
+XBRL concept produced it, e.g.:
+```json
+{"Revenues": "RevenueFromContractWithCustomerExcludingAssessedTax"}
 ```
+Stored in the `tag_provenance` column and surfaced in the `/explore` dashboard.
+Enables auditors to trace any number back to its source filing and taxonomy tag.
 
-### 2. Run services locally (dev mode)
+**Schema drift detection** — `services/monitor/schema_drift.py` runs after every
+extraction and compares present XBRL concepts against the expected set. Missing or
+zero-valued required fields generate a `schema_drift_alerts` row — so SEC taxonomy
+changes (issued annually) are caught automatically.
 
-Open three terminals:
-
-```bash
-make dev         # FastAPI on :8000
-make worker      # pipeline worker + Prometheus on :8001
-make poller      # RSS poller (polls every 30 s)
-```
-
-Or run the Prefect orchestrated worker instead of the bare worker:
-
-```bash
-make prefect-dev
-```
-
-### 3. Run everything in Docker
-
-```bash
-make stack       # docker compose up --build (all services)
-make logs        # tail logs for api / worker / poller
-```
-
-### 4. Run tests
-
-```bash
-pip install -e ".[dev]"
-make test
-```
-
-Golden-file tests hit real EDGAR URLs and assert financial values within 1% of
-known fixtures (Apple FY2023 10-K, Berkshire Q3-2023 13F).
+**Reproducibility** — every row in `financial_statements` links to `source_xbrl_url`.
+Any extracted number can be re-derived from the original SEC filing.
 
 ---
 
 ## API reference
 
 | Endpoint | Description |
-|---|---|
-| `GET /api/filings` | Recent processed filings. Params: `form`, `since`, `limit` |
-| `GET /api/drift` | Schema drift alerts (missing XBRL tags). Params: `form`, `limit` |
-| `GET /api/metrics` | Pipeline health: latency stats, success rate |
-| `GET /metrics` | Prometheus scrape endpoint |
+|----------|-------------|
+| `GET /` | Health check |
+| `GET /status` | HTML pipeline dashboard (auto-refreshes every 30 s) |
+| `GET /api/filings` | Recent filings. Params: `form`, `limit` |
+| `GET /api/financials` | XBRL financials + tag provenance. Params: `company`, `form_type` |
+| `GET /api/metrics` | Pipeline KPIs: latency, success rate, 24 h ingestion count |
+| `GET /api/volume` | Daily filing counts by form type. Param: `days` |
+| `GET /api/drift` | Schema drift alerts. Param: `form` |
 | `GET /docs` | Swagger UI |
 
 ---
 
-## Observability
+## Tech stack
 
-Grafana dashboard at **http://localhost:3000** (admin / admin) includes:
-
-- Filings processed / min by form type
-- Extraction success rate (target > 95 %)
-- Queue depth gauge
-- p50 / p95 / p99 extraction latency
-- HTTP request rate
-
-Prometheus at **http://localhost:9090**.
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.12 |
+| API | FastAPI + Mangum (Vercel serverless) |
+| Frontend | Next.js 14 (App Router), Tailwind CSS, Recharts |
+| Queue | Upstash Redis (TLS) |
+| Operational DB | Neon PostgreSQL (serverless, pooled) |
+| Analytics DWH | Snowflake (per-filing MERGE upsert) |
+| XBRL parsing | Arelle |
+| Orchestration | `pipeline_worker.py` (prod) / Prefect 3 (alt — see above) |
+| Observability | Prometheus metrics on `/metrics` |
+| CI | GitHub Actions — ruff lint + 34 pytest tests |
+| Hosting | Vercel (API + frontend) · Render (worker + poller) |
 
 ---
 
-## Prefect orchestration
-
-The Prefect flow (`services/workers/prefect_flow.py`) wraps every parser call
-in a `@task` with automatic retries:
-
-| Task | Retries | Backoff |
-|---|---|---|
-| 10-K / 10-Q extraction | 3 | 30 s → 60 s → 120 s |
-| 13F / 8-K extraction | 2 | 15 s → 30 s |
-| DB persistence | 1 | — |
-
-Each filing is a subflow so failures are individually visible in the Prefect UI.
-
-To deploy to a Prefect server:
+## Local development
 
 ```bash
-prefect deploy --all     # uses prefect.yaml
+# 1. Start local infrastructure
+docker compose up -d postgres redis
+
+# 2. Install dependencies
+pip install -e ".[dev]"
+
+# 3. Copy env file
+cp .env.example .env   # fill in DATABASE_URL, REDIS_*, SNOWFLAKE_*
+
+# 4. Initialise DB schema
+python -c "from shared.utils.db import init_db; init_db()"
+
+# 5. Start API (port 8888 — Docker reserves 8000 on Windows)
+uvicorn services.api.main:app --host 127.0.0.1 --port 8888
+
+# 6. Start worker
+METRICS_PORT=9100 python services/workers/pipeline_worker.py
+
+# 7. Start poller
+POLL_INTERVAL_SECONDS=60 python services/listener/rss_poller.py
+
+# 8. Start frontend
+cd frontend && cp .env.local.example .env.local && npm install && npm run dev
 ```
 
----
-
-## Schema drift detection
-
-`services/monitor/schema_drift.py` runs after every extraction and checks
-whether the expected XBRL concepts are present:
-
-- **Missing field** → `SCHEMA_DRIFT` WARNING log + Prometheus counter
-  `edgar_schema_drift_total{form_type, missing_field}` + row in `schema_drift_alerts`
-- **Zero-valued required field** → same pipeline, labelled `zero:<field>`
-
-Query recent alerts:
+## Tests
 
 ```bash
-curl http://localhost:8000/api/drift
+pytest tests/ -v
 ```
+
+34 tests: 8-K heuristic parser · S-1 regex extraction · 13F XML parser ·
+all FastAPI endpoints · Redis idempotency and form-type filtering.
+No network calls — all HTTP is mocked with `respx`.
 
 ---
 
-## Snowflake sync
+## Deployment
 
-```bash
-make sync        # reads financial_statements from Postgres, bulk-loads to Snowflake
-```
+See [DEPLOY.md](DEPLOY.md) for the full production deployment guide.
 
-Table: `EDGAR_FINANCIALS` — columns: `ACCESSION_NUMBER`, `COMPANY_NAME`, `CIK`,
-`FILING_DATE`, `TOTAL_ASSETS`, `TOTAL_LIABILITIES`, `REVENUES`, `NET_INCOME`,
-`SOURCE_XBRL_URL`, `EXTRACTED_AT`.
-
----
-
-## CI
-
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push / PR to `main`:
-
-1. Spins up Postgres + Redis services
-2. `pip install -e ".[dev]"`
-3. Runs database migrations
-4. Executes the full test suite including golden-file regression tests
-
----
-
-## Project layout
-
-```
-edgarstream/
-├── Dockerfile
-├── docker-compose.yml
-├── prefect.yaml
-├── pyproject.toml
-├── Makefile
-├── .github/workflows/ci.yml
-├── infra/
-│   ├── prometheus/
-│   └── grafana/
-├── services/
-│   ├── api/
-│   ├── listener/
-│   ├── monitor/
-│   ├── parser/
-│   ├── warehouse/
-│   └── workers/
-├── shared/
-│   ├── metrics.py
-│   ├── models/
-│   └── utils/
-└── tests/
-    └── test_golden_files.py
-```
+| Service | Platform | Purpose |
+|---------|----------|---------|
+| FastAPI backend | Vercel | REST API + status dashboard |
+| Next.js frontend | Vercel | Analytics dashboard |
+| Pipeline worker | Render | Extracts filings, writes Neon + Snowflake |
+| RSS poller | Render | Polls SEC EDGAR every 30 min |
+| PostgreSQL | Neon | Operational data store |
+| Redis | Upstash | Filing queue + dedup seen-set |
+| Data warehouse | Snowflake | Analytics queries |
