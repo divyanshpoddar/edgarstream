@@ -13,6 +13,6 @@ dockerfilePath = "Dockerfile"
 # Both services share the same env vars below.
 
 [deploy]
-startCommand = "python services/workers/pipeline_worker.py"
+startCommand = "python start.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
