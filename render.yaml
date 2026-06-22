@@ -3,7 +3,6 @@ services:
     name: edgarstream-worker
     runtime: docker
     dockerfilePath: ./Dockerfile
-    startCommand: python start.py
     plan: free
     healthCheckPath: /metrics
     envVars:
@@ -36,7 +35,6 @@ services:
     name: edgarstream-poller
     runtime: docker
     dockerfilePath: ./Dockerfile
-    startCommand: python start.py
     plan: free
     healthCheckPath: /
     envVars:

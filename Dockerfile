@@ -34,5 +34,6 @@ COPY start.py ./
 RUN useradd -m -u 1000 edgar && chown -R edgar:edgar /app
 USER edgar
 
-# 8000 = FastAPI, 8001 = worker Prometheus endpoint
-EXPOSE 8000 8001
+EXPOSE 8000 8001 8080 9100
+
+CMD ["python", "start.py"]
