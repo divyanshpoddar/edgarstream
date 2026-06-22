@@ -277,55 +277,56 @@ https://edgarstream-app.vercel.app/explore    # Company XBRL financial explorer
 https://edgarstream-app.vercel.app/drift      # Schema drift alerts
 ```
 
-### Step 5 — Deploy worker + poller to Railway
+### Step 5 — Deploy worker + poller to Render
 
-#### 5a. Install Railway CLI
+Both services are defined in `render.yaml` (Blueprint). Both run the same Docker image;
+`start.py` routes to the correct process via `SERVICE_TYPE` env var.
+
+**Polling interval is 30 minutes** (`POLL_INTERVAL_SECONDS=1800`) to stay within SEC
+EDGAR's fair-use guidelines.
+
+#### 5a. Create services via Blueprint
+
+1. **render.com** → **New** → **Blueprint**
+2. Connect GitHub repo `divyanshpoddar/edgarstream`
+3. Render detects `render.yaml` and shows both services — click **Apply**
+
+#### 5b. Set secret environment variables
+
+For **edgarstream-worker** (Render dashboard → Environment):
+
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | `postgresql+psycopg2://...?sslmode=require` (Neon URL) |
+| `REDIS_HOST` | `tidy-redbird-95981.upstash.io` |
+| `REDIS_PASSWORD` | `<from .env>` |
+| `SNOWFLAKE_USER` | `DIVYANSHPODDAR` |
+| `SNOWFLAKE_PASSWORD` | `<your password>` |
+| `SNOWFLAKE_ACCOUNT` | `USB09882` |
+
+For **edgarstream-poller** (same, minus Snowflake vars):
+
+| Variable | Value |
+|----------|-------|
+| `DATABASE_URL` | same Neon URL |
+| `REDIS_HOST` | `tidy-redbird-95981.upstash.io` |
+| `REDIS_PASSWORD` | `<from .env>` |
+
+#### 5c. Verify both services are running
 
 ```bash
-npm install -g @railway/cli
-railway login
+# Worker — Prometheus metrics (also serves as health check)
+curl https://edgarstream-worker.onrender.com/metrics
+
+# Poller — health endpoint
+curl https://edgarstream-poller.onrender.com/
+# Expected: {"status":"polling"}
 ```
 
-#### 5b. Create the project
-
-```bash
-railway init    # choose "Empty project", name it edgarstream-workers
+Live URLs:
 ```
-
-#### 5c. Service 1 — pipeline worker
-
-```bash
-railway service create --name edgarstream-worker
-railway link
-railway up      # deploys via railway.toml (start command: pipeline_worker.py)
-```
-
-Set environment variables:
-
-```bash
-railway variables set DATABASE_URL="postgresql+psycopg2://...?sslmode=require"
-railway variables set REDIS_HOST="global-xxx.upstash.io"
-railway variables set REDIS_PORT="6379"
-railway variables set REDIS_PASSWORD="xxx"
-railway variables set REDIS_SSL="true"
-railway variables set METRICS_PORT="9100"
-```
-
-#### 5d. Service 2 — RSS poller
-
-In the Railway dashboard → your project → **New Service** → GitHub Repo:
-- Same repo
-- Override start command: `python services/listener/rss_poller.py`
-- Add the same env vars as above (except `METRICS_PORT` — poller doesn't expose metrics)
-
-#### 5e. Verify both services are running
-
-```bash
-railway logs --service edgarstream-worker
-# Expected: "Worker pool listening for real-time pipeline payloads..."
-
-railway logs --service edgarstream-poller
-# Expected: "Poll complete. Queued N clean filings."
+https://edgarstream-worker.onrender.com/metrics   # Prometheus metrics
+https://edgarstream-poller.onrender.com/          # Poller health
 ```
 
 ---
@@ -374,26 +375,22 @@ https://api.edgarstream.io/status  # Pipeline status dashboard
 
 ## Snowflake credentials
 
-`services/warehouse/snowflake_sync.py` has hardcoded credentials. Fix before pushing to GitHub:
+All Snowflake credentials are read from environment variables — nothing is hardcoded.
+Set them in the Render dashboard for `edgarstream-worker` only (the API and poller never
+touch Snowflake):
 
-1. Replace hardcoded values:
-   ```python
-   import os
-   conn = snowflake.connector.connect(
-       user=os.getenv("SNOWFLAKE_USER"),
-       password=os.getenv("SNOWFLAKE_PASSWORD"),
-       account=os.getenv("SNOWFLAKE_ACCOUNT"),
-   )
-   ```
+| Variable | Value |
+|----------|-------|
+| `SNOWFLAKE_USER` | Your Snowflake username |
+| `SNOWFLAKE_PASSWORD` | Your Snowflake password |
+| `SNOWFLAKE_ACCOUNT` | Your Snowflake account identifier (e.g. `USB09882`) |
+| `SNOWFLAKE_WAREHOUSE` | `COMPUTE_WH` (default) |
+| `SNOWFLAKE_DATABASE` | `EDGAR_ANALYTICS` (default) |
+| `SNOWFLAKE_SCHEMA` | `PUBLIC` (default) |
 
-2. Add to Railway worker service:
-   ```bash
-   railway variables set SNOWFLAKE_USER=DIVYANSHPODDAR
-   railway variables set SNOWFLAKE_PASSWORD=<your password>
-   railway variables set SNOWFLAKE_ACCOUNT=USB09882
-   ```
-
-3. Do **not** add Snowflake vars to Vercel — the API never touches Snowflake.
+The worker calls `ensure_schema()` on startup (creates `FINANCIAL_STATEMENTS` if absent)
+and `upsert_financial()` after every 10-K and 10-Q — Snowflake stays in sync with Neon
+in real-time. If Snowflake creds are absent the worker logs a warning and continues.
 
 ---
 
