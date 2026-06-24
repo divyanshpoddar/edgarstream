@@ -5,10 +5,10 @@ import { usePathname } from "next/navigation";
 import LiveBadge from "./LiveBadge";
 
 const LINKS = [
-  { href: "/",        label: "Home" },
-  { href: "/feed",    label: "Live Feed" },
-  { href: "/explore", label: "Explore" },
-  { href: "/drift",   label: "Drift Alerts" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/feed",      label: "Live Feed" },
+  { href: "/explore",   label: "Explore" },
+  { href: "/drift",     label: "Drift Alerts" },
 ];
 
 export default function Navbar() {
