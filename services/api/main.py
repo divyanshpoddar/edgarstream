@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, Query
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Date
+from sqlalchemy import func, cast, Date, or_
 from datetime import datetime, timedelta
 from typing import Optional
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -147,7 +147,14 @@ def get_financials(
     db: Session = Depends(get_db),
 ):
     """Extracted financial statements with XBRL tag provenance."""
-    query = db.query(FinancialStatement)
+    query = db.query(FinancialStatement).filter(
+        or_(
+            FinancialStatement.total_assets.isnot(None),
+            FinancialStatement.total_liabilities.isnot(None),
+            FinancialStatement.revenues.isnot(None),
+            FinancialStatement.net_income.isnot(None),
+        )
+    )
     if company:
         query = query.filter(FinancialStatement.company_name.ilike(f"%{company}%"))
     if form_type:
