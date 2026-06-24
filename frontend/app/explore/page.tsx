@@ -21,7 +21,17 @@ export default function ExplorePage() {
     setLoading(true);
     api
       .financials({ company: q || undefined, limit: 30 })
-      .then((res) => setResults(res.data))
+      .then((res) =>
+        setResults(
+          res.data.filter(
+            (s: import("@/lib/types").FinancialStatement) =>
+              s.total_assets != null ||
+              s.total_liabilities != null ||
+              s.revenues != null ||
+              s.net_income != null
+          )
+        )
+      )
       .catch(() => setResults([]))
       .finally(() => setLoading(false));
   }

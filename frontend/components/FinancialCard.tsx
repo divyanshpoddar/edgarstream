@@ -27,22 +27,44 @@ export default function FinancialCard({ stmt }: Props) {
     <div className="bg-surface border border-border rounded-lg overflow-hidden">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full text-left p-4 hover:bg-surface-2 transition-colors flex items-start justify-between gap-4"
+        className="w-full text-left p-4 hover:bg-surface-2 transition-colors flex items-center justify-between gap-4"
       >
-        <div>
-          <p className="font-semibold text-text">{stmt.company_name}</p>
+        {/* Left: name + badge + date */}
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-text truncate">{stmt.company_name}</p>
           <div className="flex items-center gap-2 mt-1">
             {stmt.form_type && <FilingBadge type={stmt.form_type} />}
             <span className="text-xs text-muted">{formatDate(stmt.filing_date)}</span>
           </div>
         </div>
-        <div className="text-right shrink-0">
+
+        {/* Right: 3 fixed-width metric columns */}
+        <div className="hidden sm:flex items-center gap-6 shrink-0">
+          {(
+            [
+              { label: "Assets",     value: stmt.total_assets },
+              { label: "Revenue",    value: stmt.revenues },
+              { label: "Net Income", value: stmt.net_income },
+            ] as const
+          ).map(({ label, value }) => (
+            <div key={label} className="text-right w-24">
+              <p className="text-xs text-muted">{label}</p>
+              <p className={`text-sm font-mono font-semibold ${value != null ? "text-blue" : "text-muted/40"}`}>
+                {formatCurrency(value)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Mobile: just assets */}
+        <div className="sm:hidden text-right shrink-0">
           <p className="text-xs text-muted">Assets</p>
           <p className="text-sm font-mono font-semibold text-blue">
             {formatCurrency(stmt.total_assets)}
           </p>
         </div>
-        <span className="text-muted text-lg">{open ? "▲" : "▼"}</span>
+
+        <span className="text-muted text-lg shrink-0">{open ? "▲" : "▼"}</span>
       </button>
 
       {open && (
