@@ -23,12 +23,11 @@ export default function ExplorePage() {
       .financials({ company: q || undefined, limit: 30 })
       .then((res) =>
         setResults(
-          res.data.filter(
-            (s: import("@/lib/types").FinancialStatement) =>
-              s.total_assets != null ||
-              s.total_liabilities != null ||
-              s.revenues != null ||
-              s.net_income != null
+          (res.data as FinancialStatement[]).filter(
+            (s) =>
+              (s.total_assets != null && s.total_assets !== 0) ||
+              (s.revenues != null && s.revenues !== 0) ||
+              (s.net_income != null && s.net_income !== 0)
           )
         )
       )

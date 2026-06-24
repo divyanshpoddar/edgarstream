@@ -147,12 +147,12 @@ def get_financials(
     db: Session = Depends(get_db),
 ):
     """Extracted financial statements with XBRL tag provenance."""
+    from sqlalchemy import and_ as _and
     query = db.query(FinancialStatement).filter(
         or_(
-            FinancialStatement.total_assets.isnot(None),
-            FinancialStatement.total_liabilities.isnot(None),
-            FinancialStatement.revenues.isnot(None),
-            FinancialStatement.net_income.isnot(None),
+            _and(FinancialStatement.total_assets.isnot(None),  FinancialStatement.total_assets != 0),
+            _and(FinancialStatement.revenues.isnot(None),      FinancialStatement.revenues != 0),
+            _and(FinancialStatement.net_income.isnot(None),    FinancialStatement.net_income != 0),
         )
     )
     if company:
